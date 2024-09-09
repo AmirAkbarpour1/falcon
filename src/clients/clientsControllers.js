@@ -4,7 +4,7 @@ import AuthMiddlware from "../middlewares/authMiddleware.js";
 import logger from "../helper/logger.js";
 const router = Router();
 
-router.post("/get", AuthMiddlware, async (req, res, next) => {
+router.post("/get", async (req, res, next) => {
   try {
     const { uuid: clientUuid } = req.body;
     res.send(await getClient(clientUuid));

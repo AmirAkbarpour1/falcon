@@ -4,7 +4,7 @@ import { hashKey } from "../utils/hashKeyManager.js";
 import axios from "axios";
 import logger from "../helper/logger.js";
 import serverError from "../errors/serverError.js";
-import moment from "moment-timezone";
+import moment from "moment-jalaali";
 import http from "http";
 import https from "https";
 import i18n from "../../i18n.js";
@@ -89,7 +89,7 @@ export const updateClients = async (lng) => {
     const protocol = ipv4Regex.test(decryptPanel.host) ? "http" : "https";
 
     // If session is not available, login and get session
-    if (!decryptPanel.session) {
+    const loginAndGetSession = async () => {
       try {
         const getsession = await login(
           decryptPanel.key,
@@ -100,52 +100,59 @@ export const updateClients = async (lng) => {
           decryptPanel.password
         );
         decryptPanel.session = getsession;
+        return true;
       } catch (error) {
         failedPanels.push({
           host: decryptPanel.host,
-          error: `Failed to get inbounds: ${error.message}`,
+          error: `Failed to Login: ${error.message}`,
         });
-        continue;
+        return false;
       }
+    };
+
+    if (!decryptPanel.session) {
+      const loginSuccess = await loginAndGetSession();
+      if (!loginSuccess) continue;
     }
 
     // Create axios instances for panel and subpanel URLs
     const panelUrl = axios.create({
       baseURL: `${protocol}://${decryptPanel.host}:${decryptPanel.port}${decryptPanel.path}/panel/api/inbounds`,
       headers: {
-        Cookie: decryptPanel.session,
+        Cookie: `3x-ui=MTcyMzQ4MDUxMnxEWDhFQVFMX2dBQUJFQUVRQUFCMV80QUFBUVp6ZEhKcGJtY01EQUFLVEU5SFNVNWZWVk5GVWhoNExYVnBMMlJoZEdGaVlYTmxMMjF2WkdWc0xsVnpaWExfZ1FNQkFRUlZjMlZ5QWYtQ0FBRUVBUUpKWkFFRUFBRUlWWE5sY201aGJXVUJEQUFCQ0ZCaGMzTjNiM0prQVF3QUFRdE1iMmRwYmxObFkzSmxkQUVNQUFBQUZfLUNGQUVDQVFSaGJXbHlBUWs2UVcxcGNpOUJheUVBfH_zamgxKJTYmdrS6qQGdYR3WB6vkYDbD7f51wBy8rJJ`,
         "Content-Type": "application/json",
       },
       httpAgent: new http.Agent({ keepAlive: true, timeout: 10000 }),
       httpsAgent: new https.Agent({ keepAlive: true, timeout: 10000 }),
+      withCredentials: true,
     });
 
     const subUrl = axios.create({
       baseURL: `${protocol}://${decryptPanel.host}:${decryptPanel.subPort}${decryptPanel.subPath}`,
       headers: {
-        Cookie: decryptPanel.session,
         "Content-Type": "application/json",
       },
       httpAgent: new http.Agent({ keepAlive: true, timeout: 10000 }),
       httpsAgent: new https.Agent({ keepAlive: true, timeout: 10000 }),
+      withCredentials: true,
     });
 
-    // Fetch inbounds data
-    let inbounds = [];
-    try {
-      const inboundsResponse = await panelUrl.get("/list");
-      inbounds = inboundsResponse.data.obj;
-    } catch (error) {
-      logger.warn(
-        `Failed to get inbounds: ${decryptPanel.host} - ${error.message}`
-      );
-      failedPanels.push({
-        host: decryptPanel.host,
-        error: `Failed to get inbounds: ${error.message}`,
-      });
-      continue; // Skip to the next panel
-    }
+    // Function to fetch inbounds
+    const fetchInbounds = async () => {
+      try {
+        const inboundsResponse = await panelUrl.get("/list");
+        const inbounds = inboundsResponse.data.obj;
+        return inbounds;
+      } catch (error) {
+        logger.warn(
+          `Failed to get inbounds: ${decryptPanel.host} - ${error.message}`
+        );
+        return null;
+      }
+    };
 
+    // Attempt to fetch inbounds
+    let inbounds = await fetchInbounds();
     // Process inbounds to extract client data
     inbounds.forEach((inbound) => {
       const clientsStats = inbound.clientStats;
@@ -188,41 +195,54 @@ export const updateClients = async (lng) => {
         ...rest
       } = client;
 
-      let totalGB = (total / 1024 ** 3).toFixed(2);
-      const upGB = (up / 1024 ** 3).toFixed(2);
-      const downGB = (down / 1024 ** 3).toFixed(2);
-      let remainingVolumeGB = ((total - up - down) / 1024 ** 3).toFixed(2);
-      const consumedVolumeGB = ((up + down) / 1024 ** 3).toFixed(2);
-
-      let remainingTime = "";
-      let expirationDay = "";
+      let totalTraffic = (total / 1024 ** 3).toFixed(2);
+      const upload = (up / 1024 ** 3).toFixed(2);
+      const download = (down / 1024 ** 3).toFixed(2);
+      let remainingTraffic = ((total - up - down) / 1024 ** 3).toFixed(2);
+      let totalUsage = ((up + down) / 1024 ** 3).toFixed(2);
 
       const now = moment();
-      if (expiryTime) {
-        remainingTime = moment
-          .duration(moment(expiryTime).diff(now))
-          .humanize(true);
-        expirationDay = moment(expiryTime)
-          .tz("Asia/Tehran")
-          .format("YYYY-MM-DD");
+
+      let remainingTime;
+      let expirationDay;
+
+      const expiryMoment = moment(expiryTime);
+      const duration = moment.duration(expiryMoment.diff(now));
+
+      const days = Math.floor(duration.asDays());
+
+      remainingTime = days > 0 ? days.toString() : "0";
+
+      expirationDay = expiryMoment.format("jYYYY/jMM/jDD");
+
+      if (expirationDay === "1348/10/10") {
+        remainingTime = "نامحدود";
+        expirationDay = "نامحدود";
+      } else if (expirationDay === "1348/09/10") {
+        remainingTime = "در انتظار";
+        expirationDay = "در انتظار";
       }
 
-      if (expirationDay === "1970-01-01" || !expiryTime) {
-        remainingTime = "Unlimited";
-        expirationDay = "Unlimited";
+      if (totalTraffic === "0.00") {
+        totalTraffic = "نامحدود";
+        remainingTraffic = "نامحدود";
       }
-      if (totalGB === "0.00") {
-        totalGB = "Unlimited";
-        remainingVolumeGB = "Unlimited";
+
+      if (remainingTraffic < "0") {
+        remainingTraffic = "0";
+      }
+
+      if (Number(totalUsage) > Number(totalTraffic)) {
+        totalUsage = totalTraffic;
       }
 
       return {
         ...rest,
-        totalGB,
-        downGB,
-        upGB,
-        consumedVolumeGB,
-        remainingVolumeGB,
+        totalTraffic,
+        download,
+        upload,
+        totalUsage,
+        remainingTraffic,
         expirationDay,
         remainingTime,
       };
@@ -230,8 +250,14 @@ export const updateClients = async (lng) => {
 
     // Fetch configurations and IPs for clients
     const configRequests = clients.map((client) => {
+      if (client.enable !== true) {
+        return {
+          id: client.id,
+          config: "false",
+        };
+      }
       return subUrl
-        .get(client.subId)
+        .get(`/${client.subId}`)
         .then((response) => ({
           id: client.id,
           config: response.data,
@@ -290,7 +316,7 @@ export const updateClients = async (lng) => {
 
     // Combine client data with configurations and IPs
     clients.forEach((client) => {
-      const { id, email, subId, ...rest } = client;
+      const { id, email, subId, totalGB, ...rest } = client;
       const clientConfig = configResults.find(
         (c) => c.value.id === client.id
       )?.value;

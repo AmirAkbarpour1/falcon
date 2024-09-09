@@ -21,20 +21,20 @@ model Panel {
 }
 
 model Client {
-    key      String   @unique
-    email             String
-    uuid              String
-    enable            Boolean
-    limitIp           Int
-    ipsCount          Int
-    totalGB           String
-    downGB            String
-    upGB              String
-    consumedVolumeGB  String
-    remainingVolumeGB String
-    expirationDay     String
-    remainingTime     String
-    config            String
+    key              String  @unique
+    email            String
+    uuid             String
+    enable           Boolean
+    limitIp          Int
+    ipsCount         Int
+    totalTraffic     String
+    download         String
+    upload           String
+    totalUsage       String
+    remainingTraffic String
+    expirationDay    String
+    remainingTime    String
+    config           String
 }
 
 model User {

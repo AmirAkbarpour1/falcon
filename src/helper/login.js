@@ -18,7 +18,7 @@ export const login = async (key, host, port, path, username, password) => {
         password: password,
       }
     );
-    const session = response.headers["set-cookie"][0];
+    const session = response.headers["set-cookie"][0].split(";")[0].split("=")[1];
 
     await prisma.panel.update({
       where: {
@@ -31,7 +31,6 @@ export const login = async (key, host, port, path, username, password) => {
 
     logger.info(`Panel session updated: ${host}`);
     return session;
-    
   } catch (error) {
     logger.warn(`Failed to login panel: ${host} - ${error.message}`);
     throw new ServerError(
